@@ -370,37 +370,21 @@ func (fs *FileSystem) fsckTimestamp(options *backend.FsckOptions, ts int64, empt
 }
 
 func (fs *FileSystem) fsckTimestamps(options *backend.FsckOptions, empties map[int64]struct{}) error {
-	files, err := os.ReadDir(fs.root)
+	tsPaths, err := fs.rootTimestampPaths()
 	if err != nil {
 		return err
 	}
 
-	for _, fi := range files {
-		if !fi.IsDir() {
-			return fmt.Errorf("unexpected file %v",
-				filepath.Join(fs.root, fi.Name()))
-		}
-		if fi.Name() == globalDBDir {
-			continue
-		}
-
-		// Ensure it is a valid timestamp
-		t, err := time.Parse(fStr, fi.Name())
-		if err != nil {
-			return fmt.Errorf("invalid timestamp: %v", fi.Name())
-		}
-
+	for _, tp := range tsPaths {
 		if options.Verbose || options.PrintHashes {
-			fmt.Printf("--- Checking: %v (%v)\n", fi.Name(),
-				t.Unix())
+			fmt.Printf("--- Checking: %v (%v)\n", tp.dir, tp.ts.Unix())
 		}
-		err = fs.fsckTimestamp(options, t.Unix(), empties)
+		err = fs.fsckTimestamp(options, tp.ts.Unix(), empties)
 		if err != nil {
 			return err
 		}
 		if options.Verbose || options.PrintHashes {
-			fmt.Printf("=== Verified: %v (%v)\n", fi.Name(),
-				t.Unix())
+			fmt.Printf("=== Verified: %v (%v)\n", tp.dir, tp.ts.Unix())
 		}
 	}
 

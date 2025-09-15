@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,7 +27,7 @@ import (
 )
 
 const (
-	fStr        = "20060102.150405"
+	fStr        = "2006-01/02/150405" // yyyy-mm/dd/HHMMSS
 	globalDBDir = "global"
 	flushedKey  = "flushed"
 
@@ -281,6 +282,71 @@ func (fs *FileSystem) flush(ts int64) error {
 	return nil
 }
 
+type tsPath struct {
+	dir string
+	ts  time.Time
+}
+
+func (fs *FileSystem) rootTimestampPaths() ([]tsPath, error) {
+	var tsDirs []tsPath
+	err := filepath.Walk(fs.root, func(pathStr string, info os.FileInfo, err error) error {
+		origPath := pathStr
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			return nil
+		}
+		// Strip root
+		pathStr = pathStr[len(fs.root):]
+		if len(pathStr) > 0 && pathStr[0] == filepath.Separator {
+			pathStr = pathStr[1:]
+		}
+		// Check if we are 2 of 3 dirs deep in the fStr (path a/b)
+		pathStr, b := filepath.Split(pathStr)
+		if pathStr == "" || pathStr == "/" {
+			return nil
+		}
+		pathStr = filepath.Clean(pathStr)
+		pathStr, a := filepath.Split(pathStr)
+		if pathStr != "" {
+			return nil
+		}
+		if a == "" || b == "" {
+			return nil
+		}
+		// yyyy-mm/dd
+		if _, err := time.Parse("2006-01/02", filepath.Join(a, b)); err != nil {
+			// Skip invalid directories
+			return nil
+		}
+		dbDirs, err := os.ReadDir(origPath)
+		if err != nil {
+			return err
+		}
+		for _, d := range dbDirs {
+			name := d.Name()
+			// HHMMSS
+			if _, err := time.Parse("150405", name); err != nil {
+				// Skip invalid directories
+				continue
+			}
+			dir := filepath.Join(a, b, name)
+			ts, err := time.Parse(fStr, dir)
+			if err != nil {
+				return err
+			}
+			tsDirs = append(tsDirs, tsPath{
+				dir: dir,
+				ts:  ts,
+			})
+		}
+		// Do not recurse further.
+		return filepath.SkipDir
+	})
+	return tsDirs, err
+}
+
 // doFlush walks timestamp directories backwards and flushes them to the
 // global database until it finds a flushed timestamp directory.  At that
 // point the flusher exits.  It returns the number of directories that were
@@ -291,53 +357,35 @@ func (fs *FileSystem) flush(ts int64) error {
 func (fs *FileSystem) doFlush() (int, error) {
 	now := fs.now().Format(fStr)
 
-	// Get Dirs.
-	files, err := os.ReadDir(fs.root)
+	// Get dirs and timestamps.
+	tsPaths, err := fs.rootTimestampPaths()
 	if err != nil {
 		return 0, err
 	}
 
-	// Create work.
-	dirs := make([]string, 0, len(files))
-	for _, file := range files {
-		// Skip global db.
-		if file.Name() == globalDBDir {
-			continue
-		}
-		if !file.IsDir() {
-			continue
-		}
-		// Skip current timestamp.
-		if file.Name() == now {
-			continue
-		}
-
-		dirs = append(dirs, file.Name())
-	}
-
 	// Reverse sort work.
-	sort.Sort(sort.Reverse(sort.StringSlice(dirs)))
+	sort.Slice(tsPaths, func(i, j int) bool {
+		return strings.Compare(tsPaths[i].dir, tsPaths[j].dir) != -1
+	})
 	// Walk directories backwards until we find a flushed database.  At
 	// this point we know we are caught up.
 	count := 0
-	for _, dir := range dirs {
-		// Skip invalid directories.
-		timestamp, err := time.Parse(fStr, dir)
-		if err != nil {
+	for _, tp := range tsPaths {
+		// Skip current timestamp.
+		if tp.dir == now {
 			continue
 		}
-		ts := timestamp.Unix()
 
 		// Skip flushed dirs.
-		if fs.isFlushed(ts) {
+		if fs.isFlushed(tp.ts.Unix()) {
 			// We hit a flushed dir so we should be done.
 			break
 		}
 
 		// Flush timestamp container
-		err = fs.flush(ts)
+		err := fs.flush(tp.ts.Unix())
 		if err != nil {
-			e := fmt.Sprintf("flush %v: %v", ts2dirname(ts), err)
+			e := fmt.Sprintf("flush %v: %v", tp.dir, err)
 			if fs.testing {
 				panic(e)
 			}
@@ -601,41 +649,27 @@ func (fs *FileSystem) getDigest(now time.Time, current *leveldb.DB, digest [sha2
 
 	// Lookup in previous not flushed dirs
 	// Get Dirs.
-	files, err := os.ReadDir(fs.root)
+	tsPaths, err := fs.rootTimestampPaths()
 	if err != nil {
 		return gdme, err
 	}
-	// Collect relevant dirs.
-	nowDir := now.Format(fStr)
-	dirs := make([]string, 0, len(files))
-	for _, file := range files {
-		// Skip global db.
-		if file.Name() == globalDBDir {
-			continue
-		}
-		if !file.IsDir() {
-			continue
-		}
-		// Skip current timestamp.
-		if file.Name() == nowDir {
-			continue
-		}
-
-		dirs = append(dirs, file.Name())
-	}
 
 	// Reverse sort work.
-	sort.Sort(sort.Reverse(sort.StringSlice(dirs)))
+	sort.Slice(tsPaths, func(i, j int) bool {
+		return strings.Compare(tsPaths[i].dir, tsPaths[j].dir) != -1
+	})
 
 	// Walk directories backwards until we find a flushed database. At
 	// this point we know we are caught up.
 	foundP := false
-	for _, dir := range dirs {
-		timestamp, err := time.Parse(fStr, dir)
-		if err != nil {
+	nowDir := now.Format(fStr)
+	for _, tp := range tsPaths {
+		// Skip current timestamp.
+		if tp.dir == nowDir {
 			continue
 		}
-		dirTs := timestamp.Unix()
+
+		dirTs := tp.ts.Unix()
 		if fs.isFlushed(dirTs) {
 			// We hit a flushed dir so we should be done.
 			break
@@ -774,64 +808,53 @@ func (fs *FileSystem) LastDigests(n int32) ([]backend.GetResult, error) {
 		fs.RLock()
 		defer fs.RUnlock()
 
-		files, err := os.ReadDir(fs.root)
+		tsPaths, err := fs.rootTimestampPaths()
 		if err != nil {
 			return nil, err
 		}
-		// Loop through files and use the getTimestamp function to get info about
+		// Reverse sort work.
+		sort.Slice(tsPaths, func(i, j int) bool {
+			return strings.Compare(tsPaths[i].dir, tsPaths[j].dir) != 1
+		})
+		// Loop through file and use the getTimestamp function to get info about
 		// the digests in each folder
-		for i := len(files) - 1; i >= 0; i-- {
+		for _, tp := range tsPaths {
 			if len(results) >= int(n) {
 				break
 			}
-			if !files[i].IsDir() {
-				return nil, fmt.Errorf("unexpected file %v",
-					filepath.Join(fs.root, files[i].Name()))
+
+			log.Debugf("--- Checking: %v (%v)\n", tp.dir, tp.ts.Unix())
+
+			res, err := fs.getTimestamp(tp.ts.Unix())
+			if err != nil {
+				return nil, err
 			}
 
-			// We can skip global
-			if files[i].Name() != "global" {
-				// Ensure it is a valid timestamp
-				t, err := time.Parse(fStr, files[i].Name())
-				if err != nil {
-					return nil, fmt.Errorf("invalid timestamp: %v", files[i].Name())
-				}
-
-				log.Debugf("--- Checking: %v (%v)\n", files[i].Name(),
-					t.Unix())
-
-				res, err := fs.getTimestamp(t.Unix())
-				if err != nil {
-					return nil, err
-				}
-
-				// Convert array of digests to array of pointers to digests so we
-				// can pass as a pram to merkle.AuthPath and get the MerklePath
-				ptDigests := make([]*[sha256.Size]byte, 0, len(res.Digests))
-				for _, d := range res.Digests {
-					ptDigests = append(ptDigests, &d)
-				}
-				for _, digest := range res.Digests {
-					gdme := backend.GetResult{
-						Digest:            digest,
-						Timestamp:         res.Timestamp,
-						ErrorCode:         res.ErrorCode,
-						Confirmations:     res.Confirmations,
-						MinConfirmations:  res.MinConfirmations,
-						AnchoredTimestamp: res.AnchoredTimestamp,
-						Tx:                res.Tx,
-						MerkleRoot:        res.MerkleRoot,
-						MerklePath:        *merkle.AuthPath(ptDigests, &digest),
-					}
-					results = append(results, gdme)
-					if len(results) >= int(n) {
-						break
-					}
-				}
-
-				log.Debugf("=== Finished: %v (%v)\n", files[i].Name(),
-					t.Unix())
+			// Convert array of digests to array of pointers to digests so we
+			// can pass as a pram to merkle.AuthPath and get the MerklePath
+			ptDigests := make([]*[sha256.Size]byte, 0, len(res.Digests))
+			for _, d := range res.Digests {
+				ptDigests = append(ptDigests, &d)
 			}
+			for _, digest := range res.Digests {
+				gdme := backend.GetResult{
+					Digest:            digest,
+					Timestamp:         res.Timestamp,
+					ErrorCode:         res.ErrorCode,
+					Confirmations:     res.Confirmations,
+					MinConfirmations:  res.MinConfirmations,
+					AnchoredTimestamp: res.AnchoredTimestamp,
+					Tx:                res.Tx,
+					MerkleRoot:        res.MerkleRoot,
+					MerklePath:        *merkle.AuthPath(ptDigests, &digest),
+				}
+				results = append(results, gdme)
+				if len(results) >= int(n) {
+					break
+				}
+			}
+
+			log.Debugf("=== Finished: %v (%v)\n", tp.dir, tp.ts.Unix())
 		}
 	}
 
@@ -908,39 +931,23 @@ func (fs *FileSystem) Put(hashes [][sha256.Size]byte) (int64, []backend.PutResul
 
 		// Lookup in previous not flushed dirs
 		// Get Dirs.
-		files, err := os.ReadDir(fs.root)
+		tsPaths, err := fs.rootTimestampPaths()
 		if err != nil {
 			return 0, []backend.PutResult{}, err
 		}
-		// Collect relevant dirs.
-		dirs := make([]string, 0, len(files))
-		for _, file := range files {
-			// Skip global db.
-			if file.Name() == globalDBDir {
-				continue
-			}
-			if !file.IsDir() {
-				continue
-			}
-			// Skip current timestamp.
-			if file.Name() == now {
-				continue
-			}
-
-			dirs = append(dirs, file.Name())
-		}
-
 		// Reverse sort work.
-		sort.Sort(sort.Reverse(sort.StringSlice(dirs)))
+		sort.Slice(tsPaths, func(i, j int) bool {
+			return strings.Compare(tsPaths[i].dir, tsPaths[j].dir) != 1
+		})
 		// Walk directories backwards until we find a flushed database. At
 		// this point we know we are caught up.
 		foundP := false
-		for _, dir := range dirs {
-			timestamp, err := time.Parse(fStr, dir)
-			if err != nil {
+		for _, tp := range tsPaths {
+			// Skip current timestamp.
+			if tp.dir == now {
 				continue
 			}
-			dirTs := timestamp.Unix()
+			dirTs := tp.ts.Unix()
 			if fs.isFlushed(dirTs) {
 				// We hit a flushed dir so we should be done.
 				break
@@ -962,10 +969,7 @@ func (fs *FileSystem) Put(hashes [][sha256.Size]byte) (int64, []backend.PutResul
 					Digest:    hash,
 					ErrorCode: backend.ErrorExists,
 				})
-				// Convert dir name to unix timestamp
-				// to return as collection time
-				tsTime, _ := time.Parse(fStr, dir)
-				ts = tsTime.Unix()
+				ts = tp.ts.Unix()
 
 				// Override error code during testing
 				if fs.testing {
@@ -1026,39 +1030,23 @@ func (fs *FileSystem) Close() {
 func (fs *FileSystem) LastAnchor() (*backend.LastAnchorResult, error) {
 	now := fs.now().Format(fStr)
 	// Get Dirs.
-	files, err := os.ReadDir(fs.root)
+	tsPaths, err := fs.rootTimestampPaths()
 	if err != nil {
 		return &backend.LastAnchorResult{}, err
 	}
-	// Collect relevant dirs.
-	dirs := make([]string, 0, len(files))
-	for _, file := range files {
-		// Skip global db.
-		if file.Name() == globalDBDir {
-			continue
-		}
-		if !file.IsDir() {
-			continue
-		}
-		// Skip current timestamp.
-		if file.Name() == now {
-			continue
-		}
-
-		dirs = append(dirs, file.Name())
-	}
-
 	// Reverse sort work.
-	sort.Sort(sort.Reverse(sort.StringSlice(dirs)))
+	sort.Slice(tsPaths, func(i, j int) bool {
+		return strings.Compare(tsPaths[i].dir, tsPaths[j].dir) != 1
+	})
 
 	var flushedTs int64
 	// Find the latest flushed dir
-	for _, dir := range dirs {
-		timestamp, err := time.Parse(fStr, dir)
-		if err != nil {
+	for _, tp := range tsPaths {
+		// Skip current timestamp.
+		if tp.dir == now {
 			continue
 		}
-		dirTs := timestamp.Unix()
+		dirTs := tp.ts.Unix()
 		if fs.isFlushed(dirTs) {
 			flushedTs = dirTs
 			// We hit a flushed dir so we should be done.

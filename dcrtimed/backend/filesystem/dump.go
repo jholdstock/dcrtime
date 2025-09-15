@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/decred/dcrtime/dcrtimed/backend"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -184,30 +183,16 @@ func (fs *FileSystem) dumpTimestamp(f *os.File, verbose bool, ts int64) error {
 }
 
 func (fs *FileSystem) dumpTimestamps(f *os.File, verbose bool) error {
-	files, err := os.ReadDir(fs.root)
+	tsPaths, err := fs.rootTimestampPaths()
 	if err != nil {
 		return err
 	}
 
-	for _, fi := range files {
-		if !fi.IsDir() {
-			continue
-		}
-		if fi.Name() == globalDBDir {
-			continue
-		}
-
-		// Ensure it is a valid timestamp
-		t, err := time.Parse(fStr, fi.Name())
-		if err != nil {
-			return fmt.Errorf("invalid timestamp: %v", fi.Name())
-		}
-
+	for _, tp := range tsPaths {
 		if verbose {
-			fmt.Fprintf(f, "--- Timestamp: %v %v\n", fi.Name(),
-				t.Unix())
+			fmt.Fprintf(f, "--- Timestamp: %v %v\n", tp.dir, tp.ts.Unix())
 		}
-		err = fs.dumpTimestamp(f, verbose, t.Unix())
+		err = fs.dumpTimestamp(f, verbose, tp.ts.Unix())
 		if err != nil {
 			return err
 		}
