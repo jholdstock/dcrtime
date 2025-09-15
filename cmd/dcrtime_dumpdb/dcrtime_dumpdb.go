@@ -15,8 +15,8 @@ var (
 	defaultHomeDir = dcrutil.AppDataDir("dcrtimed", false)
 
 	destination = flag.String("destination", "", "Restore destination")
-	dumpJSON    = flag.Bool("json", false, "Dump JSON")
-	restore     = flag.Bool("restore", false, "Restore backend, -destination is required")
+	dumpJSON    = flag.Bool("json", true, "Dump JSON")
+	restore     = flag.Bool("restore", false, "Restore backend from JSON dump, -destination is required")
 	fsRoot      = flag.String("source", "", "Source directory")
 	testnet     = flag.Bool("testnet", false, "Use testnet port")
 )
