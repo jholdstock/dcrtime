@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Decred developers
+// Copyright (c) 2017-2026 The Decred developers
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
-	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -18,6 +17,22 @@ import (
 	"github.com/decred/dcrtime/dcrtimed/backend"
 	"github.com/decred/dcrtime/merkle"
 )
+
+// newTestFileSystem returns a FileSystem rooted in a temporary directory which
+// is automatically removed at the end of each test.
+func newTestFileSystem(t *testing.T) *FileSystem {
+	t.Helper()
+
+	fs, err := internalNew(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Set testing flag.
+	fs.testing = true
+
+	return fs
+}
 
 func TestEncodeDecode(t *testing.T) {
 	var hashes []*[sha256.Size]byte
@@ -70,20 +85,7 @@ func TestTimestamp(t *testing.T) {
 }
 
 func TestGetDigests(t *testing.T) {
-	dir, err := os.MkdirTemp("", "dcrtimed.test")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer os.RemoveAll(dir)
-
-	fs, err := internalNew(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Set testing flag.
-	fs.testing = true
+	fs := newTestFileSystem(t)
 
 	// Override timestampper so that we don't race during test.
 	timestamp := fs.now().Unix()
@@ -205,20 +207,7 @@ func TestGetDigests(t *testing.T) {
 // all existing returned with ErrorCode = foundPrevious which means digests
 // were found in previous container.
 func TestGetDigestsFoundInPrevious(t *testing.T) {
-	dir, err := os.MkdirTemp("", "dcrtimed.test")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer os.RemoveAll(dir)
-
-	fs, err := internalNew(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Set testing flag.
-	fs.testing = true
+	fs := newTestFileSystem(t)
 
 	// Override timestampper so that we don't race during test.
 	timestamp := fs.now().Unix()
@@ -316,20 +305,7 @@ func TestGetDigestsFoundInPrevious(t *testing.T) {
 }
 
 func TestGetTimestamp(t *testing.T) {
-	dir, err := os.MkdirTemp("", "dcrtimed.test")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer os.RemoveAll(dir)
-
-	fs, err := internalNew(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Set testing flag.
-	fs.testing = true
+	fs := newTestFileSystem(t)
 
 	// We want to verify collections as well.
 	fs.enableCollections = true
@@ -457,20 +433,7 @@ func TestGetTimestamp(t *testing.T) {
 }
 
 func TestPut(t *testing.T) {
-	dir, err := os.MkdirTemp("", "dcrtimed.test")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer os.RemoveAll(dir)
-
-	fs, err := internalNew(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Set testing flag.
-	fs.testing = true
+	fs := newTestFileSystem(t)
 
 	// Put batch success in current time
 	var hashes [][sha256.Size]byte
@@ -547,20 +510,7 @@ func TestPut(t *testing.T) {
 }
 
 func TestPutFoundInPrevious(t *testing.T) {
-	dir, err := os.MkdirTemp("", "dcrtimed.test")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer os.RemoveAll(dir)
-
-	fs, err := internalNew(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Set testing flag.
-	fs.testing = true
+	fs := newTestFileSystem(t)
 
 	// Put batch success in current time
 	var hashes [][sha256.Size]byte
@@ -613,20 +563,7 @@ func TestPutFoundInPrevious(t *testing.T) {
 }
 
 func TestFlusher(t *testing.T) {
-	dir, err := os.MkdirTemp("", "dcrtimed.test")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer os.RemoveAll(dir)
-
-	fs, err := internalNew(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Set testing flag.
-	fs.testing = true
+	fs := newTestFileSystem(t)
 
 	// Return our artificial timestamp
 	timestamp := fs.now().Unix()
@@ -646,7 +583,7 @@ func TestFlusher(t *testing.T) {
 		}
 
 		// Push hashes to database.
-		_, _, err = fs.Put(hashes)
+		_, _, err := fs.Put(hashes)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -701,20 +638,7 @@ func TestFlusher(t *testing.T) {
 }
 
 func TestFlusherSkipNow(t *testing.T) {
-	dir, err := os.MkdirTemp("", "dcrtimed.test")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer os.RemoveAll(dir)
-
-	fs, err := internalNew(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Set testing flag.
-	fs.testing = true
+	fs := newTestFileSystem(t)
 
 	// Put batch success in current time
 	var hashes [][sha256.Size]byte
