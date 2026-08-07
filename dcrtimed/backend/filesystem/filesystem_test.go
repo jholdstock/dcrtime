@@ -89,14 +89,18 @@ func checkFoundAndMissing(t *testing.T, grs []backend.GetResult,
 	}
 }
 
-func TestEncodeDecode(t *testing.T) {
-	var hashes []*[sha256.Size]byte
-	count := 10
-	for i := 0; i < count; i++ {
-		hash := [sha256.Size]byte{}
-		hash[0] = byte(i)
-		hashes = append(hashes, &hash)
+// digestPtrs converts a slice of digests to a slice of pointers to digests.
+func digestPtrs(digests [][sha256.Size]byte) []*[sha256.Size]byte {
+	ptrs := make([]*[sha256.Size]byte, 0, len(digests))
+	for i := range digests {
+		ptrs = append(ptrs, &digests[i])
 	}
+
+	return ptrs
+}
+
+func TestEncodeDecode(t *testing.T) {
+	hashes := digestPtrs(makeDigests(0, 10))
 
 	x := [32]byte{0xde, 0xad, 0xbe, 0xef}
 	tx, err := chainhash.NewHash(x[:])
@@ -590,5 +594,65 @@ func TestFlusherSkipNow(t *testing.T) {
 	// Check using isFlushed as well.
 	if fs.isFlushed(timestamp) {
 		t.Fatalf("unexpected now to not be flushed")
+	}
+}
+
+// TestLastDigests flushes a batch of digests to the filesystem, fetches them
+// with LastDigests, and then ensures the merkle root and path returned for each
+// digest is correct.
+func TestLastDigests(t *testing.T) {
+	fs := newTestFileSystem(t)
+
+	fs.enableCollections = true
+	fs.maxDigests = 100
+
+	// Return our artificial timestamp
+	timestamp := fs.now().Unix()
+	fs.myNow = func() time.Time {
+		return time.Unix(timestamp, 0)
+	}
+
+	// Timestamp a collection of distinct digests and flush it so that the
+	// collection has a merkle root.
+	count := 10
+	hashes := makeDigests(0, count)
+	if _, _, err := fs.Put(hashes); err != nil {
+		t.Fatal(err)
+	}
+
+	// Move time forward by one duration and flush.
+	timestamp = time.Unix(timestamp, 0).Add(fs.duration).Unix()
+	flushed, err := fs.doFlush()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flushed != 1 {
+		t.Fatalf("unexpected flushed got %v want 1", flushed)
+	}
+
+	grs, err := fs.LastDigests(int32(count))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(grs) != count {
+		t.Fatalf("expected %v GetResult got %v", count, len(grs))
+	}
+
+	leaves := digestPtrs(hashes)
+	root := *merkle.Root(leaves)
+
+	for i := range grs {
+		gr := grs[i]
+		// Validate the merkle root.
+		if gr.MerkleRoot != root {
+			t.Fatalf("invalid merkle root got %x want %x", gr.MerkleRoot, root)
+		}
+
+		// Validate the auth path.
+		want := merkle.AuthPath(leaves, &gr.Digest)
+		if !reflect.DeepEqual(gr.MerklePath, *want) {
+			t.Fatalf("digest %x: incorrect auth path got %s want %s",
+				gr.Digest, spew.Sdump(gr.MerklePath), spew.Sdump(*want))
+		}
 	}
 }
