@@ -34,6 +34,20 @@ func newTestFileSystem(t *testing.T) *FileSystem {
 	return fs
 }
 
+// makeDigests creates and returns count digests. Each digest is all zeroes
+// except for its first byte. The first returned digest will have first byte
+// start, the second will have start+1, etc.
+func makeDigests(start, count int) [][sha256.Size]byte {
+	digests := make([][sha256.Size]byte, 0, count)
+	for i := start; i < start+count; i++ {
+		digest := [sha256.Size]byte{}
+		digest[0] = byte(i)
+		digests = append(digests, digest)
+	}
+
+	return digests
+}
+
 func TestEncodeDecode(t *testing.T) {
 	var hashes []*[sha256.Size]byte
 	count := 10
@@ -94,13 +108,8 @@ func TestGetDigests(t *testing.T) {
 	}
 
 	// Put batch success in current time
-	var hashes [][sha256.Size]byte
 	count := 10
-	for i := 0; i < count; i++ {
-		hash := [sha256.Size]byte{}
-		hash[0] = byte(i)
-		hashes = append(hashes, hash)
-	}
+	hashes := makeDigests(0, count)
 
 	_, me, err := fs.Put(hashes)
 	if err != nil {
@@ -126,11 +135,7 @@ func TestGetDigests(t *testing.T) {
 	}
 
 	// Get mixed success and failure
-	for i := count; i < count*2; i++ {
-		hash := [sha256.Size]byte{}
-		hash[0] = byte(i)
-		hashes = append(hashes, hash)
-	}
+	hashes = append(hashes, makeDigests(count, count)...)
 
 	grs, err = fs.Get(hashes)
 	if err != nil {
@@ -216,13 +221,8 @@ func TestGetDigestsFoundInPrevious(t *testing.T) {
 	}
 
 	// Put batch success in current time
-	var hashes [][sha256.Size]byte
 	count := 10
-	for i := 0; i < count; i++ {
-		hash := [sha256.Size]byte{}
-		hash[0] = byte(i)
-		hashes = append(hashes, hash)
-	}
+	hashes := makeDigests(0, count)
 
 	_, me, err := fs.Put(hashes)
 	if err != nil {
@@ -248,11 +248,7 @@ func TestGetDigestsFoundInPrevious(t *testing.T) {
 	}
 
 	// Get mixed success and failure
-	for i := count; i < count*2; i++ {
-		hash := [sha256.Size]byte{}
-		hash[0] = byte(i)
-		hashes = append(hashes, hash)
-	}
+	hashes = append(hashes, makeDigests(count, count)...)
 
 	grs, err = fs.Get(hashes)
 	if err != nil {
@@ -311,13 +307,8 @@ func TestGetTimestamp(t *testing.T) {
 	fs.enableCollections = true
 
 	// Put batch success in current time
-	var hashes [][sha256.Size]byte
 	count := 10
-	for i := 0; i < count; i++ {
-		hash := [sha256.Size]byte{}
-		hash[0] = byte(i)
-		hashes = append(hashes, hash)
-	}
+	hashes := makeDigests(0, count)
 
 	timestamp, me, err := fs.Put(hashes)
 	if err != nil {
@@ -436,13 +427,8 @@ func TestPut(t *testing.T) {
 	fs := newTestFileSystem(t)
 
 	// Put batch success in current time
-	var hashes [][sha256.Size]byte
 	count := 10
-	for i := 0; i < count; i++ {
-		hash := [sha256.Size]byte{}
-		hash[0] = byte(i)
-		hashes = append(hashes, hash)
-	}
+	hashes := makeDigests(0, count)
 
 	timestamp, me, err := fs.Put(hashes)
 	if err != nil {
@@ -513,13 +499,8 @@ func TestPutFoundInPrevious(t *testing.T) {
 	fs := newTestFileSystem(t)
 
 	// Put batch success in current time
-	var hashes [][sha256.Size]byte
 	count := 10
-	for i := 0; i < count; i++ {
-		hash := [sha256.Size]byte{}
-		hash[0] = byte(i)
-		hashes = append(hashes, hash)
-	}
+	hashes := makeDigests(0, count)
 
 	timestamp, me, err := fs.Put(hashes)
 	if err != nil {
@@ -575,16 +556,8 @@ func TestFlusher(t *testing.T) {
 	buckets := 10
 	count := 10
 	for i := 0; i < buckets; i++ {
-		var hashes [][sha256.Size]byte
-		for j := 0; j < count; j++ {
-			hash := [sha256.Size]byte{}
-			hash[0] = byte(j + i*10)
-			hashes = append(hashes, hash)
-		}
-
 		// Push hashes to database.
-		_, _, err := fs.Put(hashes)
-		if err != nil {
+		if _, _, err := fs.Put(makeDigests(i*count, count)); err != nil {
 			t.Fatal(err)
 		}
 
@@ -614,11 +587,7 @@ func TestFlusher(t *testing.T) {
 	// Read back expected hashes from global database.
 	var hashes [][sha256.Size]byte
 	for i := 0; i < buckets; i++ {
-		for j := 0; j < count; j++ {
-			hash := [sha256.Size]byte{}
-			hash[0] = byte(j + i*10)
-			hashes = append(hashes, hash)
-		}
+		hashes = append(hashes, makeDigests(i*count, count)...)
 	}
 
 	grs, err := fs.Get(hashes)
@@ -641,13 +610,8 @@ func TestFlusherSkipNow(t *testing.T) {
 	fs := newTestFileSystem(t)
 
 	// Put batch success in current time
-	var hashes [][sha256.Size]byte
 	count := 10
-	for i := 0; i < count; i++ {
-		hash := [sha256.Size]byte{}
-		hash[0] = byte(i)
-		hashes = append(hashes, hash)
-	}
+	hashes := makeDigests(0, count)
 
 	timestamp, me, err := fs.Put(hashes)
 	if err != nil {
