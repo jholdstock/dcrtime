@@ -48,6 +48,22 @@ func makeDigests(start, count int) [][sha256.Size]byte {
 	return digests
 }
 
+// checkGetResult ensures grs holds all of the digests.
+func checkGetResult(t *testing.T, grs []backend.GetResult, digests [][sha256.Size]byte) {
+	t.Helper()
+
+	if len(grs) != len(digests) {
+		t.Fatalf("expected %v GetResult got %v", len(digests), len(grs))
+	}
+
+	for i, gr := range grs {
+		if !bytes.Equal(gr.Digest[:], digests[i][:]) {
+			t.Fatalf("invalid digest got %x want %x",
+				gr.Digest[:], digests[i][:])
+		}
+	}
+}
+
 func TestEncodeDecode(t *testing.T) {
 	var hashes []*[sha256.Size]byte
 	count := 10
@@ -123,16 +139,7 @@ func TestGetDigests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(grs) != count {
-		t.Fatalf("expected %v GetResult", count)
-	}
-
-	for i, gr := range grs {
-		if !bytes.Equal(gr.Digest[:], hashes[i][:]) {
-			t.Fatalf("invalid digest got %x want %x",
-				gr.Digest[:], hashes[i][:])
-		}
-	}
+	checkGetResult(t, grs, hashes)
 
 	// Get mixed success and failure
 	hashes = append(hashes, makeDigests(count, count)...)
@@ -236,16 +243,7 @@ func TestGetDigestsFoundInPrevious(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(grs) != count {
-		t.Fatalf("expected %v GetResult", count)
-	}
-
-	for i, gr := range grs {
-		if !bytes.Equal(gr.Digest[:], hashes[i][:]) {
-			t.Fatalf("invalid digest got %x want %x",
-				gr.Digest[:], hashes[i][:])
-		}
-	}
+	checkGetResult(t, grs, hashes)
 
 	// Get mixed success and failure
 	hashes = append(hashes, makeDigests(count, count)...)
@@ -594,16 +592,7 @@ func TestFlusher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(grs) != buckets*count {
-		t.Fatalf("expected %v GetResult got %v", count, len(grs))
-	}
-
-	for i, gr := range grs {
-		if !bytes.Equal(gr.Digest[:], hashes[i][:]) {
-			t.Fatalf("invalid digest got %x want %x",
-				gr.Digest[:], hashes[i][:])
-		}
-	}
+	checkGetResult(t, grs, hashes)
 }
 
 func TestFlusherSkipNow(t *testing.T) {
