@@ -64,6 +64,31 @@ func checkGetResult(t *testing.T, grs []backend.GetResult, digests [][sha256.Siz
 	}
 }
 
+// checkFoundAndMissing ensures the first count results in grs are the expected
+// digests carrying the given error code, and that the remaining results were
+// not found.
+func checkFoundAndMissing(t *testing.T, grs []backend.GetResult,
+	digests [][sha256.Size]byte, count int, errorCode uint) {
+	t.Helper()
+
+	if len(grs) != len(digests) {
+		t.Fatalf("expected %v GetResult got %v", len(digests), len(grs))
+	}
+
+	for i, gr := range grs {
+		if i < count-1 && (!bytes.Equal(gr.Digest[:], digests[i][:]) ||
+			gr.ErrorCode != errorCode) {
+			t.Fatalf("invalid digest got %x want %x ErrorCode "+
+				"got %v want %v", gr.Digest[:], digests[i][:],
+				gr.ErrorCode, errorCode)
+		}
+		if i >= count && gr.ErrorCode != backend.ErrorNotFound {
+			t.Fatalf("invalid ErrorCode got %x want %x",
+				gr.ErrorCode, backend.ErrorNotFound)
+		}
+	}
+}
+
 func TestEncodeDecode(t *testing.T) {
 	var hashes []*[sha256.Size]byte
 	count := 10
@@ -148,22 +173,7 @@ func TestGetDigests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(grs) != count*2 {
-		t.Fatalf("expected %v GetResult", count*2)
-	}
-
-	for i, gr := range grs {
-		if i < count-1 && (!bytes.Equal(gr.Digest[:], hashes[i][:]) ||
-			gr.ErrorCode != foundLocal) {
-			t.Fatalf("invalid digest got %x want %x ErrorCode "+
-				"got %v want %v", gr.Digest[:], hashes[i][:],
-				gr.ErrorCode, foundLocal)
-		}
-		if i >= count && gr.ErrorCode != backend.ErrorNotFound {
-			t.Fatalf("invalid ErrorCode got %x want %x",
-				gr.ErrorCode, backend.ErrorNotFound)
-		}
-	}
+	checkFoundAndMissing(t, grs, hashes, count, foundLocal)
 
 	// Flush and repeat mixed success and failure
 
@@ -182,21 +192,9 @@ func TestGetDigests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(grs) != count*2 {
-		t.Fatalf("expected %v GetResult", count*2)
-	}
+	checkFoundAndMissing(t, grs, hashes, count, foundGlobal)
 
-	for i, gr := range grs {
-		if i < count-1 && (!bytes.Equal(gr.Digest[:], hashes[i][:]) ||
-			gr.ErrorCode != foundGlobal) {
-			t.Fatalf("invalid digest got %x want %x ErrorCode "+
-				"got %v want %v", gr.Digest[:], hashes[i][:],
-				gr.ErrorCode, foundGlobal)
-		}
-		if i >= count && gr.ErrorCode != backend.ErrorNotFound {
-			t.Fatalf("invalid ErrorCode got %x want %x",
-				gr.ErrorCode, backend.ErrorNotFound)
-		}
+	for _, gr := range grs {
 		// Ensure the server timestamp is set to the directory timestamp.
 		if gr.ErrorCode == 0 && gr.Timestamp != timestamp {
 			t.Fatalf("server timmestamp should be the directory timestamp, want %d got %d",
@@ -252,22 +250,7 @@ func TestGetDigestsFoundInPrevious(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(grs) != count*2 {
-		t.Fatalf("expected %v GetResult", count*2)
-	}
-
-	for i, gr := range grs {
-		if i < count-1 && (!bytes.Equal(gr.Digest[:], hashes[i][:]) ||
-			gr.ErrorCode != foundLocal) {
-			t.Fatalf("invalid digest got %x want %x ErrorCode "+
-				"got %v want %v", gr.Digest[:], hashes[i][:],
-				gr.ErrorCode, foundLocal)
-		}
-		if i >= count && gr.ErrorCode != backend.ErrorNotFound {
-			t.Fatalf("invalid ErrorCode got %x want %x",
-				gr.ErrorCode, backend.ErrorNotFound)
-		}
-	}
+	checkFoundAndMissing(t, grs, hashes, count, foundLocal)
 
 	// Move time forward.
 	fs.myNow = func() time.Time {
@@ -280,22 +263,7 @@ func TestGetDigestsFoundInPrevious(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(grs) != count*2 {
-		t.Fatalf("expected %v GetResult", count*2)
-	}
-
-	for i, gr := range grs {
-		if i < count-1 && (!bytes.Equal(gr.Digest[:], hashes[i][:]) ||
-			gr.ErrorCode != foundPrevious) {
-			t.Fatalf("invalid digest got %x want %x ErrorCode "+
-				"got %v want %v", gr.Digest[:], hashes[i][:],
-				gr.ErrorCode, foundPrevious)
-		}
-		if i >= count && gr.ErrorCode != backend.ErrorNotFound {
-			t.Fatalf("invalid ErrorCode got %x want %x",
-				gr.ErrorCode, backend.ErrorNotFound)
-		}
-	}
+	checkFoundAndMissing(t, grs, hashes, count, foundPrevious)
 }
 
 func TestGetTimestamp(t *testing.T) {
