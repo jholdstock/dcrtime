@@ -55,7 +55,8 @@ func verifyV2(digest string, fProof *os.File) error {
 	}
 
 	// Verify merkle path.
-	root, err := merkle.VerifyAuthPath((*merkle.Branch)(&v.ChainInformation.MerklePath))
+	root, err := merkle.VerifyAuthPath(
+		(*merkle.Branch)(&v.ChainInformation.MerklePath), digest)
 	if err != nil {
 		if err != merkle.ErrEmpty {
 			return fmt.Errorf("%v invalid auth path %v",
@@ -123,7 +124,7 @@ func verifyV1(digest string, fProof *os.File) error {
 	}
 
 	// Verify merkle path.
-	root, err := merkle.VerifyAuthPath(&v.ChainInformation.MerklePath)
+	root, err := merkle.VerifyAuthPath(&v.ChainInformation.MerklePath, digest)
 	if err != nil {
 		if err != merkle.ErrEmpty {
 			return fmt.Errorf("%v invalid auth path %v",

@@ -280,10 +280,10 @@ func downloadV1(questions []string) error {
 			fmt.Printf("%v invalid error code %v\n", v.Digest,
 				v.Result)
 			continue
-		}
+
 
 		// Verify merkle path.
-		root, err := merkle.VerifyAuthPath(&v.ChainInformation.MerklePath)
+		root, err := merkle.VerifyAuthPath(&v.ChainInformation.MerklePath, v.digest)
 		if err != nil {
 			if err != merkle.ErrEmpty {
 				fmt.Printf("%v invalid auth path %v\n",
@@ -410,7 +410,8 @@ func verifyDigests(vd []v2.VerifyDigest) {
 		}
 
 		// Verify merkle path.
-		root, err := merkle.VerifyAuthPath((*merkle.Branch)(&d.ChainInformation.MerklePath))
+		root, err := merkle.VerifyAuthPath(
+			(*merkle.Branch)(&d.ChainInformation.MerklePath), d.Digest)
 		if err != nil {
 			if err != merkle.ErrEmpty {
 				fmt.Printf("%v invalid auth path %v\n",
